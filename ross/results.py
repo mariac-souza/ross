@@ -17,13 +17,17 @@ from numpy import linalg as la
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 from prettytable import PrettyTable
-from scipy.fft import fft
 from pathlib import Path
 
-from ross.bearings.magnetic.amb_utils import get_ambs
-from ross.plotly_theme import tableau_colors, coolwarm_r
+from ross.plotly_theme import (
+    SHAPE_3D_ASPECT,
+    axes_indicator_3d,
+    coolwarm_r,
+    tableau_colors,
+)
 from ross.units import Q_, check_units
 from ross.utils import intersection, compute_dfft, compute_freq_resp
+from ross.bearings.magnetic.amb_utils import get_ambs
 
 __all__ = [
     "Orbit",
@@ -84,7 +88,7 @@ class Results(ABC):
         >>> response = rotor.run_unbalance_response(node=3,
         ...                                         unbalance_magnitude=0.001,
         ...                                         unbalance_phase=0.0,
-        ...                                         frequency=speed)
+        ...                                         speed_range=speed)
 
         >>> # create path for a temporary file
         >>> file = Path(tempdir) / 'unb_resp.toml'
@@ -882,8 +886,8 @@ class Shape(Results):
                 for n in range(n0, n1):
                     node_data.append(
                         go.Scatter3d(
-                            x=[nodes_pos[n], zt[n]],
-                            y=[0, 0],
+                            y=[nodes_pos[n], zt[n]],
+                            x=[0, 0],
                             z=[0, 1],
                             mode="lines",
                             line=dict(width=2, color=self.color),
@@ -911,8 +915,8 @@ class Shape(Results):
 
                 node_data.append(
                     go.Scatter3d(
-                        x=xn,
-                        y=np.zeros(len(nodes_pos)),
+                        y=xn,
+                        x=np.zeros(len(nodes_pos)),
                         z=np.ones(len(nodes_pos)),
                         line=dict(width=2, color=self.color),
                         hoverinfo="none",
@@ -930,8 +934,8 @@ class Shape(Results):
 
         original = [
             go.Scatter3d(
-                x=nodes_pos,
-                y=nodes_pos * 0,
+                y=nodes_pos,
+                x=nodes_pos * 0,
                 z=nodes_pos * 0,
                 mode="markers",
                 marker=dict(size=3, color=tableau_colors["gray"]),
@@ -946,8 +950,8 @@ class Shape(Results):
         max_pos = max(nodes_pos) + 0.15 * abs(max(nodes_pos) - min(nodes_pos))
         center_line = [
             go.Scatter3d(
-                x=[min_pos, max_pos],
-                y=[0, 0],
+                y=[min_pos, max_pos],
+                x=[0, 0],
                 z=[0, 0],
                 mode="lines",
                 line=dict(color="black", dash="dashdot"),
@@ -960,7 +964,7 @@ class Shape(Results):
 
         fig.update_layout(
             scene=dict(
-                yaxis=dict(showticklabels=False),
+                xaxis=dict(showticklabels=False),
                 zaxis=dict(showticklabels=False),
             )
         )
@@ -1145,15 +1149,15 @@ class Shape(Results):
                 for n in range(n0, n1):
                     node_data.append(
                         go.Scatter3d(
-                            x=[nodes_pos[n], nodes_pos[n]],
-                            y=[0, xt[j, n]],
+                            y=[nodes_pos[n], nodes_pos[n]],
+                            x=[0, xt[j, n]],
                             z=[0, yt[j, n]],
                             mode="lines",
                             line=dict(width=2, color=self.color),
                             name=f"Node {self.nodes[n]}",
                             hovertemplate=(
-                                "Nodal position: %{x:.2f}<br>"
-                                + "X - Displacement: %{y:.2f}<br>"
+                                "Nodal position: %{y:.2f}<br>"
+                                + "X - Displacement: %{x:.2f}<br>"
                                 + "Y - Displacement: %{z:.2f}<br>"
                                 + f"Relative angle: {theta[n]:.2f}"
                             ),
@@ -1178,8 +1182,8 @@ class Shape(Results):
 
                 node_data.append(
                     go.Scatter3d(
-                        x=xn,
-                        y=yn,
+                        y=xn,
+                        x=yn,
                         z=zn,
                         line=dict(width=2, color=self.color),
                         hoverinfo="none",
@@ -1200,8 +1204,8 @@ class Shape(Results):
         max_pos = max(nodes_pos) + 0.15 * abs(max(nodes_pos) - min(nodes_pos))
         center_line = [
             go.Scatter3d(
-                x=[min_pos, max_pos],
-                y=[0, 0],
+                y=[min_pos, max_pos],
+                x=[0, 0],
                 z=[0, 0],
                 mode="lines",
                 line=dict(color="black", dash="dashdot"),
@@ -1426,16 +1430,16 @@ class Shape(Results):
                 # add orbit point
                 orbit_data.append(
                     go.Scatter3d(
-                        x=[zc_pos[i]],
-                        y=[orbit.x_circle[i]],
+                        y=[zc_pos[i]],
+                        x=[orbit.x_circle[i]],
                         z=[orbit.y_circle[i]],
                         mode="markers",
                         marker=dict(color=orbit.color),
                         name="node {}".format(orbit.node),
                         showlegend=False,
                         hovertemplate=(
-                            "Nodal Position: %{x:.2f}<br>"
-                            + "X - Displacement: %{y:.2f}<br>"
+                            "Nodal Position: %{y:.2f}<br>"
+                            + "X - Displacement: %{x:.2f}<br>"
                             + "Y - Displacement: %{z:.2f}"
                         ),
                     )
@@ -1444,16 +1448,16 @@ class Shape(Results):
                 if n > 0:
                     orbit_data.append(
                         go.Scatter3d(
-                            x=zc_pos[j],
-                            y=orbit.x_circle[j],
+                            y=zc_pos[j],
+                            x=orbit.x_circle[j],
                             z=orbit.y_circle[j],
                             mode="lines",
                             line=dict(color=orbit.color, dash="dashdot"),
                             name="node {}".format(orbit.node),
                             showlegend=False,
                             hovertemplate=(
-                                "Nodal Position: %{x:.2f}<br>"
-                                + "X - Displacement: %{y:.2f}<br>"
+                                "Nodal Position: %{y:.2f}<br>"
+                                + "X - Displacement: %{x:.2f}<br>"
                                 + "Y - Displacement: %{z:.2f}"
                             ),
                         )
@@ -1462,16 +1466,16 @@ class Shape(Results):
                 if n == 0:
                     orbit_data.append(
                         go.Scatter3d(
-                            x=zc_pos,
-                            y=orbit.x_circle,
+                            y=zc_pos,
+                            x=orbit.x_circle,
                             z=orbit.y_circle,
                             mode="lines",
                             line=dict(color=orbit.color),
                             name="node {}".format(orbit.node),
                             showlegend=False,
                             hovertemplate=(
-                                "Nodal Position: %{x:.2f}<br>"
-                                + "X - Displacement: %{y:.2f}<br>"
+                                "Nodal Position: %{y:.2f}<br>"
+                                + "X - Displacement: %{x:.2f}<br>"
                                 + "Y - Displacement: %{z:.2f}"
                             ),
                         )
@@ -1480,8 +1484,8 @@ class Shape(Results):
                     # add orbit major axis marker
                     fixed_lines.append(
                         go.Scatter3d(
-                            x=[zc_pos[0]],
-                            y=[orbit.major_x],
+                            y=[zc_pos[0]],
+                            x=[orbit.major_x],
                             z=[orbit.major_y],
                             mode="markers",
                             marker=dict(
@@ -1497,7 +1501,7 @@ class Shape(Results):
                                 ]
                             ).reshape(1, 2),
                             hovertemplate=(
-                                "Nodal Position: %{x:.2f}<br>"
+                                "Nodal Position: %{y:.2f}<br>"
                                 + "Major axis: %{customdata[0]:.2f}<br>"
                                 + "Angle: %{customdata[1]:.2f}"
                             ),
@@ -1520,8 +1524,8 @@ class Shape(Results):
             # plot line connecting orbits starting points
             fixed_lines.append(
                 go.Scatter3d(
-                    x=zn[n0:n1],
-                    y=xn[n0:n1],
+                    y=zn[n0:n1],
+                    x=xn[n0:n1],
                     z=yn[n0:n1],
                     mode="lines",
                     line=dict(color="black", dash="dash"),
@@ -1533,8 +1537,8 @@ class Shape(Results):
             # plot major axis line
             fixed_lines.append(
                 go.Scatter3d(
-                    x=zn[n0:n1],
-                    y=self.major_x[n0:n1],
+                    y=zn[n0:n1],
+                    x=self.major_x[n0:n1],
                     z=self.major_y[n0:n1],
                     mode="lines",
                     line=dict(color="black", dash="dashdot"),
@@ -1551,8 +1555,8 @@ class Shape(Results):
         max_pos = max(zn) + 0.15 * abs(max(zn) - min(zn))
         fixed_lines.append(
             go.Scatter3d(
-                x=[min_pos, max_pos],
-                y=[0, 0],
+                y=[min_pos, max_pos],
+                x=[0, 0],
                 z=[0, 0],
                 mode="lines",
                 line=dict(color="black", dash="dashdot"),
@@ -1605,6 +1609,46 @@ class Shape(Results):
 
         return fig
 
+    def _axes_indicator_3d(self, fig, length_units, half_range):
+        """Draw the rotor frame triad in a 3-D shape plot.
+
+        Shape plots lay the scene out as a rotation of the rotor frame (see
+        :py:meth:`plot_3d`): rotor x on the scene x axis, which runs
+        reversed, the rotor length on the scene y axis and rotor y on the
+        scene z axis. The triad sits on the rotor axis at z = 0 (or at the
+        first node when the rotor does not start there) and has a legend
+        entry which toggles it.
+
+        Parameters
+        ----------
+        fig : plotly.graph_objects.Figure
+            The figure object with the shape plot.
+        length_units : str
+            Length units of the scene y axis.
+        half_range : float
+            Half extent of the displacement axes.
+
+        Returns
+        -------
+        fig : plotly.graph_objects.Figure
+            The figure object with the triad.
+        """
+        nodes_pos = Q_(self.nodes_pos, "m").to(length_units).m
+        length = max(np.max(nodes_pos) - np.min(nodes_pos), 1e-12)
+        z0 = 0.0 if np.min(nodes_pos) <= 0.0 <= np.max(nodes_pos) else np.min(nodes_pos)
+        aspect = SHAPE_3D_ASPECT
+        return axes_indicator_3d(
+            fig,
+            origin=dict(x=0.0, y=z0, z=0.0),
+            size=0.15,
+            scales=dict(
+                x=2 * half_range / aspect["x"],
+                y=length / aspect["y"],
+                z=2 * half_range / aspect["z"],
+            ),
+            scene_axes={"x": "x", "y": "z", "z": "y"},
+        )
+
     def plot_3d(
         self,
         length_units="m",
@@ -1640,14 +1684,15 @@ class Shape(Results):
                 fig=fig,
             )
 
+        # the scene is a rotation of the rotor frame, never a mirror: rotor x
+        # runs on the scene x axis, reversed, the rotor length on the scene y
+        # axis and rotor y on the scene z axis. Laid out this way, plotly's
+        # own default camera, which the modebar "reset camera to default"
+        # returns to, shows node 0 at the far left with the shaft receding
+        # to the right and y up
         fig.update_layout(
             scene=dict(
-                aspectratio=dict(x=2.5, y=1, z=1),
-                camera=dict(
-                    eye=dict(x=2.3, y=1.5, z=0.5),
-                    center=dict(x=1.15, y=0.5, z=0),
-                    up=dict(x=0, y=0, z=1),
-                ),
+                aspectratio=SHAPE_3D_ASPECT,
             ),
             **kwargs,
         )
@@ -1743,6 +1788,12 @@ class ModalResults(Results):
         List of nodes positions.
     shaft_elements_length : list
         List with Rotor shaft elements lengths.
+    number_dof : int
+        Number of degrees of freedom per node.
+    whirl_frequency : array, optional
+        Whirl (excitation) frequency at which the frequency-dependent
+        coefficients were evaluated for each mode. Default is the rotor
+        speed for every mode (synchronous coefficients).
     """
 
     def __init__(
@@ -1759,6 +1810,7 @@ class ModalResults(Results):
         nodes_pos,
         shaft_elements_length,
         number_dof,
+        whirl_frequency=None,
     ):
         self.speed = speed
         self.evalues = evalues
@@ -1772,6 +1824,9 @@ class ModalResults(Results):
         self.nodes_pos = nodes_pos
         self.shaft_elements_length = shaft_elements_length
         self.number_dof = number_dof
+        if whirl_frequency is None:
+            whirl_frequency = np.full(len(wd), float(speed))
+        self.whirl_frequency = np.asarray(whirl_frequency, dtype=np.float64)
         self.update_mode_shapes()
 
     def update_mode_shapes(self):
@@ -2096,27 +2151,23 @@ class ModalResults(Results):
             else f"{shape.mode_type} mode"
         )
 
+        fig = shape._axes_indicator_3d(fig, length_units, half_range=2)
+
         fig.update_layout(
             margin=dict(b=60, l=40, r=40, t=60),
             scene=dict(
                 xaxis=dict(
-                    title=dict(text=f"Rotor Length ({length_units})"),
-                    autorange="reversed",
-                    nticks=5,
+                    title=dict(text="Relative Displacement"), range=[2, -2], nticks=5
                 ),
                 yaxis=dict(
-                    title=dict(text="Relative Displacement"), range=[-2, 2], nticks=5
+                    title=dict(text=f"Rotor Length ({length_units})"),
+                    nticks=5,
                 ),
                 zaxis=dict(
                     title=dict(text="Relative Displacement"), range=[-2, 2], nticks=5
                 ),
                 aspectmode="manual",
-                aspectratio=dict(x=2.5, y=1, z=1),
-                camera=dict(
-                    eye=dict(x=2.3, y=1.5, z=0.5),
-                    center=dict(x=1.15, y=0.5, z=0),
-                    up=dict(x=0, y=0, z=1),
-                ),
+                aspectratio=SHAPE_3D_ASPECT,
             ),
             legend=dict(x=0.85, y=0.95),
             title=dict(
@@ -2273,8 +2324,8 @@ class ModalResults(Results):
             autosize=False,
             width=500,
             height=500,
-            xaxis_range=[-1, 1],
-            yaxis_range=[-1, 1],
+            xaxis=dict(range=[-1, 1], title=dict(text="<i>x</i>")),
+            yaxis=dict(range=[-1, 1], title=dict(text="<i>y</i>")),
             title={
                 "text": f"Mode {mode} - Nodes {nodes}",
                 "x": 0.5,
@@ -2683,9 +2734,11 @@ class CampbellResults(Results):
         damping_range : tuple, optional
             Damping range to plot.
         campbell_layout : dict, optional
-            Layout for Campbell plot.
+            Layout applied on top of the Campbell plot.
         mode_3d_layout : dict, optional
-            Layout for 3D mode plot.
+            Layout applied on top of the 3D mode shape figures. Default is None,
+            which keeps the view plot_mode_3d draws, so the modebar's "reset
+            camera" returns to the same picture.
         animation : bool, optional
             If True, enables animation.
         fig : plotly.graph_objects.Figure, optional
@@ -2835,8 +2888,6 @@ class CampbellResults(Results):
 
         campbell_layout = dict(margin=dict(l=0, r=0, t=30, b=0))
 
-        mode_3d_layout = dict(scene=dict(camera=dict(eye=dict(x=3.0, y=2.2, z=1.2))))
-
         camp_fig, update_mode_3d = self._plot_with_mode_shape(
             harmonics=harmonics,
             frequency_units=frequency_units,
@@ -2845,7 +2896,6 @@ class CampbellResults(Results):
             frequency_range=frequency_range,
             damping_range=damping_range,
             campbell_layout=campbell_layout,
-            mode_3d_layout=mode_3d_layout,
             animation=animation,
             fig=fig,
             **kwargs,
@@ -4551,6 +4601,8 @@ class ForcedResponseResults(Results):
         if fig is None:
             fig = go.Figure()
 
+        plot_range = Q_(np.max(shape.major_axis) * 1.5, "m").to(amplitude_units).m
+        fig = shape._axes_indicator_3d(fig, rotor_length_units, plot_range)
         fig = shape.plot_3d(
             phase_units=phase_units, length_units=rotor_length_units, fig=fig
         )
@@ -4569,8 +4621,8 @@ class ForcedResponseResults(Results):
 
                 fig.add_trace(
                     go.Scatter3d(
-                        x=[z_pos, z_pos],
-                        y=[0, Q_(x, "m").to(amplitude_units).m],
+                        y=[z_pos, z_pos],
+                        x=[0, Q_(x, "m").to(amplitude_units).m],
                         z=[0, Q_(y, "m").to(amplitude_units).m],
                         mode="lines",
                         line=dict(color=tableau_colors["red"]),
@@ -4581,8 +4633,8 @@ class ForcedResponseResults(Results):
                 )
                 fig.add_trace(
                     go.Scatter3d(
-                        x=[z_pos],
-                        y=[Q_(x, "m").to(amplitude_units).m],
+                        y=[z_pos],
+                        x=[Q_(x, "m").to(amplitude_units).m],
                         z=[Q_(y, "m").to(amplitude_units).m],
                         mode="markers",
                         marker=dict(color=tableau_colors["red"], symbol="diamond"),
@@ -4607,17 +4659,15 @@ class ForcedResponseResults(Results):
             ),
         )
 
-        plot_range = Q_(np.max(shape.major_axis) * 1.5, "m").to(amplitude_units).m
         fig.update_layout(
             scene=dict(
                 xaxis=dict(
-                    title=dict(text=f"Rotor Length ({rotor_length_units})"),
-                    autorange="reversed",
+                    title=dict(text=f"Amplitude x ({amplitude_units})"),
+                    range=[plot_range, -plot_range],
                     nticks=5,
                 ),
                 yaxis=dict(
-                    title=dict(text=f"Amplitude x ({amplitude_units})"),
-                    range=[-plot_range, plot_range],
+                    title=dict(text=f"Rotor Length ({rotor_length_units})"),
                     nticks=5,
                 ),
                 zaxis=dict(
@@ -6369,8 +6419,8 @@ class UCSResults(Results):
     stiffness_log : tuple, optional
         Evenly numbers spaced evenly on a log scale to create a better visualization
         (see np.logspace).
-    bearing_frequency_range : tuple, optional
-        The bearing frequency range used to calculate the intersection points.
+    bearing_speed_range : tuple, optional
+        The bearing speed range used to calculate the intersection points.
         In some cases bearing coefficients will have to be extrapolated.
         The default is None. In this case the bearing frequency attribute is used.
     wn : array
@@ -6388,7 +6438,7 @@ class UCSResults(Results):
         self,
         stiffness_range,
         stiffness_log,
-        bearing_frequency_range,
+        bearing_speed_range,
         wn,
         bearing,
         intersection_points,
@@ -6396,7 +6446,7 @@ class UCSResults(Results):
     ):
         self.stiffness_range = stiffness_range
         self.stiffness_log = stiffness_log
-        self.bearing_frequency_range = bearing_frequency_range
+        self.bearing_speed_range = bearing_speed_range
         self.wn = wn
         self.critical_points_modal = critical_points_modal
         self.bearing = bearing
@@ -6440,7 +6490,7 @@ class UCSResults(Results):
         rotor_wn = self.wn
         bearing0 = self.bearing
         intersection_points = copy.copy(self.intersection_points)
-        bearing_frequency_range = self.bearing_frequency_range
+        bearing_speed_range = self.bearing_speed_range
 
         if fig is None:
             fig = go.Figure()
@@ -6455,16 +6505,16 @@ class UCSResults(Results):
             Q_(intersection_points["y"], "rad/s").to(frequency_units).m
         )
         bearing_kxx_stiffness = (
-            Q_(bearing0.kxx_interpolated(bearing_frequency_range), "N/m")
+            Q_(bearing0.kxx_interpolated(bearing_speed_range), "N/m")
             .to(stiffness_units)
             .m
         )
         bearing_kyy_stiffness = (
-            Q_(bearing0.kyy_interpolated(bearing_frequency_range), "N/m")
+            Q_(bearing0.kyy_interpolated(bearing_speed_range), "N/m")
             .to(stiffness_units)
             .m
         )
-        bearing_frequency = Q_(bearing_frequency_range, "rad/s").to(frequency_units).m
+        bearing_frequency = Q_(bearing_speed_range, "rad/s").to(frequency_units).m
 
         for j in range(rotor_wn.shape[0]):
             fig.add_trace(

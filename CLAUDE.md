@@ -15,7 +15,10 @@ disks = [
     rs.DiskElement.from_geometry(n=2, material=steel, width=0.07, i_d=0.05, o_d=0.28),
     rs.DiskElement.from_geometry(n=4, material=steel, width=0.07, i_d=0.05, o_d=0.35),
 ]
-bearings = [rs.BearingElement(n=0, kxx=1e6, cxx=0), rs.BearingElement(n=6, kxx=1e6, cxx=0)]
+bearings = [
+    rs.BearingElement(n=0, kxx=1e6, cxx=0),
+    rs.BearingElement(n=6, kxx=1e6, cxx=0),
+]
 rotor = rs.Rotor(shaft, disks, bearings)
 modal = rotor.run_modal(speed=0)
 modal.plot_mode_2d(0)
@@ -101,6 +104,10 @@ pip install -e ".[dev]"    # development install with test/lint/docs deps
 ```
 
 Requires Python >= 3.9.
+
+### Migrating ROSS 2 assets
+
+`ross_2to3 PATH...` (module `ross/ross_2to3/`) converts v2 rotor files, scripts and notebooks to the v3 API. The rename map in `ross/ross_2to3/renames.py` is the single source of truth: a rename added there is converted by the tool and must appear in `docs/release_notes/version-3.0.0.rst` (checked by `test_ross_2to3.py`).
 
 ### Testing
 
