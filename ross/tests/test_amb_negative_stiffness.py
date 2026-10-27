@@ -381,3 +381,154 @@ def test_levitation_threshold_is_checked_per_axis(i0_axes, levitates):
 
     for max_real in (frequency_domain, time_domain):
         assert bool(max_real < SMALL_EIGENVALUE) == levitates
+
+
+# Operating point under a static load. Reference: the nonlinear force of the
+# differential pair with unipolar amplifiers (Schweitzer and Maslen, 2009),
+#     F(x, ic) = k [(i0 + ic)+^2 / (g0 - x)^2 - (i0 - ic)+^2 / (g0 + x)^2],
+# differentiated by central differences.
+F_SWITCH = 4 * K_MAGNET * I0**2 / G0**2  # load at which one coil stops conducting
+
+
+def _pair_force(x, ic, i0=I0):
+    top, bottom = max(i0 + ic, 0.0), max(i0 - ic, 0.0)
+    return K_MAGNET * (top**2 / (G0 - x) ** 2 - bottom**2 / (G0 + x) ** 2)
+
+
+def _numerical_ki_ks(x, ic):
+    di, dx = 1e-7, 1e-10
+    ki = (_pair_force(x, ic + di) - _pair_force(x, ic - di)) / (2 * di)
+    ks = -(_pair_force(x + dx, ic) - _pair_force(x - dx, ic)) / (2 * dx)
+    return ki, ks
+
+
+def _loaded_amb(static_load, integral=True, **kwargs):
+    controller = {"ki_pid": 100.0} if integral else {}
+    return _amb(
+        0,
+        kp=3.0 * KP_THRESHOLD,
+        static_load=static_load,
+        sensors_axis_rotation=0.0,
+        **controller,
+        **kwargs,
+    )
+
+
+def test_zero_static_load_gives_the_nominal_element():
+    nominal = _amb(0, kp=3.0 * KP_THRESHOLD, ki_pid=100.0)
+    loaded = _amb(0, kp=3.0 * KP_THRESHOLD, ki_pid=100.0, static_load=(0.0, 0.0))
+
+    assert_allclose(loaded.ks, nominal.ks, rtol=1e-12)
+    assert_allclose(loaded.ki, nominal.ki, rtol=1e-12)
+    assert_allclose(loaded.K(0), nominal.K(0), rtol=1e-12)
+    assert_allclose(loaded.static_current, 0.0)
+
+
+@pytest.mark.parametrize(
+    "load_factors",
+    [(0.3, -0.9), (0.99, 1.01), (1.5, -3.0)],
+    ids=["both coils", "around the switch", "one coil"],
+)
+def test_static_load_linearization_with_integral_action(load_factors):
+    """Centered rotor: ic holds the load, ki and ks are the slopes of F there."""
+    loads = F_SWITCH * np.array(load_factors)
+    amb = _loaded_amb(loads)
+    ki, ks = np.broadcast_to(amb.ki, 2), np.broadcast_to(amb.ks, 2)
+
+    assert_allclose(amb.static_displacement, 0.0)
+    for axis, load in enumerate(loads):
+        ic = amb.static_current[axis]
+        assert_allclose(_pair_force(0.0, ic), load, rtol=1e-12)
+        ki_ref, ks_ref = _numerical_ki_ks(0.0, ic)
+        assert_allclose(ki[axis], ki_ref, rtol=1e-6)
+        assert_allclose(ks[axis], ks_ref, rtol=1e-6)
+
+
+def test_static_load_closed_form_with_both_coils_conducting():
+    """Below the switch, ki is unchanged and ks = ks_nominal * (1 + (ic / i0)^2)."""
+    nominal = _amb(0, kp=3.0 * KP_THRESHOLD)
+    amb = _loaded_amb((0.5 * F_SWITCH, 0.0))
+    ic = amb.static_current[0]
+
+    assert_allclose(amb.ki[0], nominal.ki, rtol=1e-12)
+    assert_allclose(amb.ks[0], nominal.ks * (1 + (ic / I0) ** 2), rtol=1e-12)
+
+
+def test_static_load_coefficients_are_continuous_at_the_switch():
+    below = _loaded_amb((F_SWITCH * (1 - 1e-9), 0.0))
+    above = _loaded_amb((F_SWITCH * (1 + 1e-9), 0.0))
+
+    assert_allclose(above.ki[0], below.ki[0], rtol=1e-6)
+    assert_allclose(above.ks[0], below.ks[0], rtol=1e-6)
+
+
+@pytest.mark.parametrize("load_factor", [0.2, 0.5, -0.5])
+def test_static_load_without_integral_action_moves_the_rotor(load_factor):
+    """The rotor moves until the static controller force holds the load."""
+    load = load_factor * F_SWITCH
+    amb = _loaded_amb((load, 0.0), integral=False)
+    x, ic = amb.static_displacement[0], amb.static_current[0]
+
+    assert_allclose(ic, -3.0 * KP_THRESHOLD * x, rtol=1e-12)
+    assert_allclose(_pair_force(x, ic), load, rtol=1e-9)
+    ki_ref, ks_ref = _numerical_ki_ks(x, ic)
+    assert_allclose(amb.ki[0], ki_ref, rtol=1e-6)
+    assert_allclose(amb.ks[0], ks_ref, rtol=1e-6)
+
+
+def test_static_load_beyond_the_controller_raises():
+    with pytest.raises(ValueError, match="cannot hold a static load"):
+        _amb(0, kp=0.9 * KP_THRESHOLD, static_load=(0.5 * F_SWITCH, 0.0))
+
+
+def test_static_load_is_projected_on_the_control_axes():
+    """At 45 deg, a vertical load splits equally; a diagonal one loads one axis.
+
+    The angle is passed as pi / 4: the default sensors_axis_rotation
+    (0.78539816) is rounded, so a vertical load splits with a relative
+    difference of about 7e-9 between the axes.
+    """
+    params = {
+        "kp": 3.0 * KP_THRESHOLD,
+        "ki_pid": 100.0,
+        "sensors_axis_rotation": np.pi / 4,
+    }
+    vertical = _amb(0, static_load=(0.0, 1.0), **params)
+    diagonal = _amb(0, static_load=(1.0, 1.0), **params)
+
+    assert_allclose(vertical.static_current[0], vertical.static_current[1], rtol=1e-12)
+    assert np.ndim(vertical.ks) == 0
+    assert_allclose(vertical.K(0)[0, 1], 0.0, atol=1e-9 * abs(vertical.K(0)[0, 0]))
+
+    ic_v, ic_w = diagonal.static_current
+    assert_allclose(_pair_force(0.0, ic_v), np.sqrt(2.0), rtol=1e-12)
+    assert_allclose(ic_w, 0.0, atol=1e-12)
+    assert abs(diagonal.K(0)[0, 1]) > 1e-6 * abs(diagonal.K(0)[0, 0])
+
+
+def test_static_load_survives_save_and_load(tmp_path):
+    amb = _loaded_amb((0.5 * F_SWITCH, -1.5 * F_SWITCH))
+    file = tmp_path / "amb.toml"
+    amb.save(file)
+    loaded = MagneticBearingElement.load(file)
+
+    assert_allclose(loaded.static_load, amb.static_load)
+    assert_allclose(loaded.ks, amb.ks, rtol=1e-12)
+    assert_allclose(loaded.ki, amb.ki, rtol=1e-12)
+    assert_allclose(loaded.K(0), amb.K(0), rtol=1e-12)
+
+
+def test_lsim_closed_loop_matches_frequency_domain_under_static_load():
+    """Both paths use the operating-point ki and ks of each axis."""
+    rotor = _p_only_rotor(
+        3.0 * KP_THRESHOLD, static_load=(0.4 * F_SWITCH, 0.1 * F_SWITCH)
+    )
+
+    reference = np.linalg.eigvals(rotor.A(speed=0))
+    reference = reference[np.abs(reference) > SMALL_EIGENVALUE]
+    closed_loop = np.linalg.eigvals(_closed_loop(rotor).A_cl)
+
+    scale = np.max(np.abs(reference))
+    for eigenvalue in reference:
+        distance = np.min(np.abs(closed_loop - eigenvalue))
+        assert distance <= 1e-6 * abs(eigenvalue) + 1e-9 * scale, eigenvalue
