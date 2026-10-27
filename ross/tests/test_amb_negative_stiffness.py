@@ -51,7 +51,7 @@ SMALL_EIGENVALUE = 1.0
 
 
 def _amb(n, kp, **kwargs):
-    return MagneticBearingElement(n=n, kp_pid=kp, **AMB_PARAMS, **kwargs)
+    return MagneticBearingElement(n=n, kp_pid=kp, **{**AMB_PARAMS, **kwargs})
 
 
 def _p_only_rotor(kp, **amb_kwargs):
@@ -289,3 +289,95 @@ def test_lsim_current_output_includes_gains():
     current = y[N + 4 * n_c : N + 5 * n_c]
 
     assert_allclose(current, -gain * kp * v_amb, rtol=1e-8)
+
+
+# Linearized differential actuator, Schweitzer and Maslen (2009), p. 343:
+# k = mu0 * nw**2 * ag * cos(alpha) / 4, ki = 4 k i0 / g0**2, ks = -4 k i0**2 / g0**3.
+MU0 = 4e-7 * np.pi
+ALPHA = 0.39269908
+K_MAGNET = MU0 * AMB_PARAMS["nw"] ** 2 * AMB_PARAMS["ag"] * np.cos(ALPHA) / 4
+
+
+def _rotation(angle):
+    return np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+
+
+def _axis_k_eq(i0, k_amp, kp):
+    """Static equivalent stiffness of one axis with a P controller (N/m)."""
+    ki = 4 * K_MAGNET * i0 / G0**2
+    ks = -4 * K_MAGNET * i0**2 / G0**3
+    return ks + ki * k_amp * kp
+
+
+def test_per_axis_values_equal_to_scalars_give_the_same_element():
+    scalar = _amb(0, kp=3.0 * KP_THRESHOLD, k_amp=1.75, k_sense=60.0)
+    per_axis = _amb(
+        0, kp=3.0 * KP_THRESHOLD, i0=[I0, I0], k_amp=[1.75, 1.75], k_sense=[60.0, 60.0]
+    )
+
+    assert per_axis.k_eq.shape == scalar.k_eq.shape
+    for frequency in (0.0, 10.0, 1000.0):
+        assert_allclose(per_axis.K(frequency), scalar.K(frequency), rtol=1e-12)
+        assert_allclose(per_axis.C(frequency), scalar.C(frequency), rtol=1e-12)
+
+
+@pytest.mark.parametrize("angle", [0.0, 0.3, np.pi / 4])
+def test_per_axis_stiffness_matches_linearized_actuator(angle):
+    """Different bias and amplifier gain per axis give a diagonal K in the sensor axes."""
+    i0_axes, k_amp_axes, kp = [1.0, 0.8], [1.0, 2.0], 3.0 * KP_THRESHOLD
+    amb = _amb(0, kp=kp, i0=i0_axes, k_amp=k_amp_axes, sensors_axis_rotation=angle)
+
+    expected = np.diag(
+        [
+            _axis_k_eq(i0, k_amp, kp)
+            for i0, k_amp in zip(i0_axes, k_amp_axes, strict=True)
+        ]
+    )
+    rotation = _rotation(angle)
+    K_sensor_axes = rotation @ amb.K(0)[:2, :2] @ np.linalg.inv(rotation)
+
+    scale = np.max(np.abs(expected))
+    assert_allclose(K_sensor_axes, expected, rtol=1e-9, atol=1e-9 * scale)
+    assert amb.k_eq.shape == (2, len(amb.frequency))
+
+
+def test_newmark_force_uses_per_axis_coefficients():
+    i0_axes, k_amp_axes, kp = [1.0, 0.8], [1.0, 2.0], 3.0 * KP_THRESHOLD
+    amb = _amb(0, kp=kp, i0=i0_axes, k_amp=k_amp_axes)
+    amb.build_controller(dt=1e-4)
+
+    x = 2e-5
+    for axis, (i0, k_amp) in enumerate(zip(i0_axes, k_amp_axes, strict=True)):
+        force, _ = amb.compute_amb_controller(
+            current_offset=0.0, setpoint=0.0, disp=x, dof_index=axis
+        )
+        assert_allclose(force, -_axis_k_eq(i0, k_amp, kp) * x, rtol=1e-9)
+
+
+@pytest.mark.parametrize("kp", [0.9, 3.0])
+def test_lsim_closed_loop_matches_frequency_domain_per_axis(kp):
+    rotor = _p_only_rotor(kp * KP_THRESHOLD, i0=[1.0, 0.8], k_amp=[1.0, 2.0])
+
+    reference = np.linalg.eigvals(rotor.A(speed=0))
+    reference = reference[np.abs(reference) > SMALL_EIGENVALUE]
+    closed_loop = np.linalg.eigvals(_closed_loop(rotor).A_cl)
+
+    scale = np.max(np.abs(reference))
+    for eigenvalue in reference:
+        distance = np.min(np.abs(closed_loop - eigenvalue))
+        assert distance <= 1e-6 * abs(eigenvalue) + 1e-9 * scale, eigenvalue
+
+
+@pytest.mark.parametrize(
+    "i0_axes, levitates",
+    [([1.0, 0.8], True), ([1.2, 0.8], False), ([0.8, 1.2], False)],
+)
+def test_levitation_threshold_is_checked_per_axis(i0_axes, levitates):
+    """Kp = 1100 A/m levitates an axis only when i0 / g0 < Kp, i.e. i0 < 1.1 A."""
+    rotor = _p_only_rotor(1.1 * KP_THRESHOLD, i0=i0_axes)
+
+    frequency_domain = _max_real_part(np.linalg.eigvals(rotor.A(speed=0)))
+    time_domain = _max_real_part(np.linalg.eigvals(_closed_loop(rotor).A_cl))
+
+    for max_real in (frequency_domain, time_domain):
+        assert bool(max_real < SMALL_EIGENVALUE) == levitates

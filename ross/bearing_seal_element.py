@@ -2347,11 +2347,13 @@ class MagneticBearingElement(BearingElement):
         Nominal air gap (m).
     i0 : float or list of float
         Bias current applied to the coils (A). Can be a scalar value
-        or a list of two values for the x and y axes.
+        or a list of two values, one for each control axis (the sensor
+        axes, rotated by ``sensors_axis_rotation``).
     ag : float
-        Effective pole area (m²).
+        Area of one pole face (m²).
     nw : int or float
-        Number of turns per coil (windings).
+        Number of turns of one electromagnet, i.e. of all the coils that
+        carry the current of one control axis.
     frequency : array_like, optional
         Frequency vector in rad/s used to evaluate the controller
         frequency response and build the equivalent stiffness and damping
@@ -2411,9 +2413,9 @@ class MagneticBearingElement(BearingElement):
     i0 : float or numpy.ndarray
         Bias current applied to the coils (A) in each controlled axis.
     ag : float
-        Effective pole area (m²).
+        Area of one pole face (m²).
     nw : float
-        Number of turns per coil (windings).
+        Number of turns of one electromagnet.
     alpha : float
         Magnetic pole angle relative to the rotor x axis (radians).
     k_amp : numpy.ndarray
@@ -2429,11 +2431,17 @@ class MagneticBearingElement(BearingElement):
     frequency : numpy.ndarray
         Frequency vector in rad/s used to compute the equivalent
         stiffness and damping matrices.
-    ks : float
-        Negative electromagnetic stiffness constant obtained from the
-        linearization of the magnetic force.
-    ki : float
-        Electromagnetic current-to-force gain.
+    ks : float or numpy.ndarray
+        Negative electromagnetic stiffness (N/m) obtained from the
+        linearization of the magnetic force; one value per control axis
+        when the axes differ.
+    ki : float or numpy.ndarray
+        Electromagnetic current-to-force gain (N/A); one value per control
+        axis when the axes differ.
+    k_eq, c_eq : numpy.ndarray
+        Equivalent stiffness (N/m) and damping (N·s/m) in the control axes
+        over ``frequency``; shape ``(2, len(frequency))`` when the two axes
+        differ.
     kxx, kxy, kyx, kyy : numpy.ndarray
         Frequency-dependent stiffness coefficients in the rotor x–y
         coordinates (N/m).
@@ -2659,8 +2667,23 @@ class MagneticBearingElement(BearingElement):
         C_real = Hjw.real
         C_imag = Hjw.imag
 
-        self.k_eq = ks + ki * self.k_amp * self.k_sense * C_real
-        self.c_eq = ki * self.k_amp * self.k_sense * C_imag * np.divide(1, omega)
+        loop_gain = np.array(
+            [
+                self.axis_gain(ki, axis)
+                * self.axis_gain(self.k_amp, axis)
+                * self.axis_gain(self.k_sense, axis)
+                for axis in range(2)
+            ]
+        )
+        position_stiffness = np.array([self.axis_gain(ks, axis) for axis in range(2)])
+        k_axes = position_stiffness[:, None] + loop_gain[:, None] * C_real
+        c_axes = loop_gain[:, None] * C_imag * np.divide(1, omega)
+
+        isotropic = np.array_equal(k_axes[0], k_axes[1]) and np.array_equal(
+            c_axes[0], c_axes[1]
+        )
+        self.k_eq = k_axes[0] if isotropic else k_axes
+        self.c_eq = c_axes[0] if isotropic else c_axes
 
         rotation_matrix = np.array(
             [
@@ -2684,9 +2707,9 @@ class MagneticBearingElement(BearingElement):
         c_xy = []
         c_yx = []
         c_yy = []
-        for omega_i, k, c in zip(omega, self.k_eq, self.c_eq, strict=True):
-            k_equivalent_matrix = np.array([[k, 0], [0, k]])
-            c_equivalent_matrix = np.array([[c, 0], [0, c]])
+        for k_v, k_w, c_v, c_w in zip(*k_axes, *c_axes, strict=True):
+            k_equivalent_matrix = np.diag([k_v, k_w])
+            c_equivalent_matrix = np.diag([c_v, c_w])
 
             k_xy_axis_matrix = (
                 inv_rotation_matrix @ k_equivalent_matrix @ rotation_matrix
@@ -2752,7 +2775,7 @@ class MagneticBearingElement(BearingElement):
 
         hovertemplate += (
             f"Air Gap (g0): {self.g0:.4e} m<br>"
-            f"Bias Current (i0): {self.i0:.2f} A<br>"
+            f"Bias Current (i0): {', '.join(f'{i:.2f}' for i in np.atleast_1d(self.i0))} A<br>"
             f"Pole Area: {self.ag:.4e} m²<br>"
             f"Windings: {self.nw:.0f}<br>"
             f"PID Kp: {self.kp_pid:.3e}<br>"
@@ -2861,31 +2884,36 @@ class MagneticBearingElement(BearingElement):
 
         k_sense = self.axis_gain(self.k_sense, dof_index)
         k_amp = self.axis_gain(self.k_amp, dof_index)
+        ki = self.axis_gain(self.ki, dof_index)
+        ks = self.axis_gain(self.ks, dof_index)
 
         err = k_sense * (setpoint - disp)
         u = self.C_c @ self.x_c[dof_index] + self.D_c * err
         self.x_c[dof_index] = self.A_c @ self.x_c[dof_index] + self.B_c * err
 
         signal_pid = current_offset + k_amp * u
-        magnetic_force = self.ki * signal_pid - self.ks * disp_actuator
+        magnetic_force = ki * signal_pid - ks * disp_actuator
 
         return magnetic_force.item(), signal_pid.item()
 
     @staticmethod
     def axis_gain(gain, dof_index):
-        """Return the sensor or amplifier gain of one control axis.
+        """Return the value of a per-axis parameter for one control axis.
+
+        Used for the sensor and amplifier gains and for the electromagnetic
+        coefficients ``ki`` and ``ks``.
 
         Parameters
         ----------
         gain : float or array_like
-            Scalar gain shared by both axes, or two gains (one per axis).
+            Scalar value shared by both axes, or two values (one per axis).
         dof_index : int
             Axis selector: 0 for the first axis, 1 for the second.
 
         Returns
         -------
         float
-            Gain of the selected axis.
+            Value of the selected axis.
 
         Examples
         --------
