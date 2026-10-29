@@ -102,8 +102,18 @@ def _amb_test_rig_rotor(bearing_elements=None):
     ]
     # fmt: on
 
+    # The equivalent materials share two names, so that the rotor plot shows
+    # one legend entry for the shaft and one for the laminations. Each shaft
+    # element keeps its own E and rho.
+    laminations = {1, 2, 3, 4, 5, 12}
     steels = [
-        Material(name=f"amb_rig_steel_{i}", E=E, rho=rho, Poisson=poisson)
+        Material(
+            name="amb_rig_lamination" if i in laminations else "amb_rig_shaft",
+            E=E,
+            rho=rho,
+            Poisson=poisson,
+            color="#468f9c" if i in laminations else "#525252",
+        )
         for i, (E, rho, poisson) in enumerate(materials)
     ]
     shaft_elements = [
