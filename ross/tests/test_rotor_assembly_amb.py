@@ -207,6 +207,58 @@ def test_run_time_response_amb_values():
     assert fig6 is not None
 
 
+def test_amb_time_response_plots_are_downsampled():
+    """The AMB time-response plots keep at most n_points original samples."""
+    rotor = rotor_example_amb_simple()
+    t = np.linspace(0, 0.1, 5001)
+    F = np.zeros((len(t), rotor.ndof))
+    response = rotor.run_time_response(speed=0, F=F, t=t, weight=True)
+
+    for plot in (
+        response.plot_amb_disps,
+        response.plot_amb_currents,
+        response.plot_amb_forces,
+    ):
+        full = plot()  # default: no reduction
+        reduced = plot(n_points=500)
+        assert len(reduced.data) == len(full.data) == 4
+        for trace_full, trace in zip(full.data, reduced.data, strict=True):
+            assert len(trace_full.x) == len(t)
+            assert len(trace.x) <= 500
+            assert np.isin(trace.x, trace_full.x).all()
+            assert trace.x[0] == trace_full.x[0]
+            assert trace.x[-1] == trace_full.x[-1]
+
+
+def test_sensitivity_time_plot_is_downsampled():
+    """Long sensor signals are reduced; the excitation keeps its visible window."""
+    rotor = rotor_example_amb_simple()
+    results = rotor.run_amb_sensitivity(
+        speed=0,
+        t_max=1e-2,
+        dt=1e-5,
+        disturbance_amplitude=1e-5,
+        disturbance_min_frequency=0.001,
+        disturbance_max_frequency=150,
+        amb_tags=["AMB_1"],
+        verbose=0,
+    )
+    t = results.sensitivity_run_time_results["t"]
+    assert len(t) > 100
+
+    full = results.plot_time_results()  # default: no reduction
+    reduced = results.plot_time_results(n_points=100)
+
+    for trace_full, trace in zip(full.data, reduced.data, strict=True):
+        if trace.yaxis == "y2":  # excitation signal: first 30 time steps
+            assert_equal(np.asarray(trace.x), t[:31])
+            assert_equal(np.asarray(trace_full.x), t[:31])
+        else:  # sensor signal
+            assert len(trace_full.x) == len(t)
+            assert len(trace.x) <= 100
+            assert np.isin(trace.x, trace_full.x).all()
+
+
 def test_amb_controller():
     # Test for the magnetic_bearing_controller method.
 

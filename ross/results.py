@@ -29,7 +29,13 @@ from ross.plotly_theme import (
 from ross.bearings.magnetic.amb_utils import get_ambs
 from ross.probe import check_probes
 from ross.units import Q_, check_units
-from ross.utils import intersection, compute_dfft, limit_data_range, compute_freq_resp
+from ross.utils import (
+    intersection,
+    compute_dfft,
+    limit_data_range,
+    compute_freq_resp,
+    downsample_figure,
+)
 
 __all__ = [
     "Orbit",
@@ -6400,6 +6406,7 @@ class AmbTimeResponseResults(TimeResponseResults):
         time_units="s",
         fig=None,
         axes=0,
+        n_points=None,
         **kwargs,
     ):
         """Plot AMB displacement response.
@@ -6414,6 +6421,13 @@ class AmbTimeResponseResults(TimeResponseResults):
             The figure object with the plot.
         axes : int, optional
             0 for displacement (x, y), 1 for displacement (v, w). Default is 0.
+        n_points : int or None, optional
+            Maximum number of points of each trace, to keep plots of long
+            simulations light to render and save. The curves are reduced with
+            ``ross.utils.downsample_figure``, which keeps only original samples
+            and preserves peaks and valleys; zooming in does not bring back the
+            removed samples. Traces already in ``fig`` are
+            reduced too. Default is None, which plots every sample.
         **kwargs : optional
             Additional key word arguments to change the plot layout.
 
@@ -6466,13 +6480,14 @@ class AmbTimeResponseResults(TimeResponseResults):
         fig.update_yaxes(title_text=f"Amplitude ({displacement_units})")
         fig.update_layout(title="AMB Displacement Response", **kwargs)
 
-        return fig
+        return downsample_figure(fig, n_points)
 
     def plot_amb_currents(
         self,
         current_units="A",
         time_units="s",
         fig=None,
+        n_points=None,
         **kwargs,
     ):
         """Plot AMB current response.
@@ -6485,6 +6500,13 @@ class AmbTimeResponseResults(TimeResponseResults):
             Time units. Default is "s".
         fig : Plotly graph_objects.Figure(), optional
             The figure object with the plot.
+        n_points : int or None, optional
+            Maximum number of points of each trace, to keep plots of long
+            simulations light to render and save. The curves are reduced with
+            ``ross.utils.downsample_figure``, which keeps only original samples
+            and preserves peaks and valleys; zooming in does not bring back the
+            removed samples. Traces already in ``fig`` are
+            reduced too. Default is None, which plots every sample.
         **kwargs : optional
             Additional key word arguments to change the plot layout.
 
@@ -6529,7 +6551,7 @@ class AmbTimeResponseResults(TimeResponseResults):
         fig.update_yaxes(title_text=f"Current ({current_units})")
         fig.update_layout(title="AMB Current Response", **kwargs)
 
-        return fig
+        return downsample_figure(fig, n_points)
 
     def plot_amb_forces(
         self,
@@ -6537,6 +6559,7 @@ class AmbTimeResponseResults(TimeResponseResults):
         time_units="s",
         fig=None,
         axes=0,
+        n_points=None,
         **kwargs,
     ):
         """Plot AMB force response.
@@ -6551,6 +6574,13 @@ class AmbTimeResponseResults(TimeResponseResults):
             The figure object with the plot.
         axes : int, optional
             0 for forces (x, y), 1 for forces (v, w). Default is 0.
+        n_points : int or None, optional
+            Maximum number of points of each trace, to keep plots of long
+            simulations light to render and save. The curves are reduced with
+            ``ross.utils.downsample_figure``, which keeps only original samples
+            and preserves peaks and valleys; zooming in does not bring back the
+            removed samples. Traces already in ``fig`` are
+            reduced too. Default is None, which plots every sample.
         **kwargs : optional
             Additional key word arguments to change the plot layout.
 
@@ -6602,7 +6632,7 @@ class AmbTimeResponseResults(TimeResponseResults):
         fig.update_yaxes(title_text=f"Force ({force_units})")
         fig.update_layout(title="AMB Force Response", **kwargs)
 
-        return fig
+        return downsample_figure(fig, n_points)
 
 
 class UCSResults(Results):
@@ -7708,6 +7738,7 @@ class SensitivityResults(Results):
         self,
         fig=None,
         fig_kwargs=None,
+        n_points=None,
     ):
         """Plot time-domain results from sensitivity analysis.
 
@@ -7730,6 +7761,15 @@ class SensitivityResults(Results):
             This can include parameters like 'title', 'width', 'height', etc.
             See plotly.graph_objects.Figure documentation for more details.
             Default is None.
+        n_points : int or None, optional
+            Maximum number of points of each trace, to keep plots of long
+            simulations light to render and save. The curves are reduced with
+            ``ross.utils.downsample_figure``, which keeps only original samples
+            and preserves peaks and valleys; zooming in does not bring back the
+            removed samples. The excitation
+            signal is plotted only over its visible window (the first 30 time
+            steps), so it keeps every sample. Traces already in ``fig`` are
+            reduced too. Default is None, which plots every sample.
 
         Returns
         -------
@@ -7812,7 +7852,7 @@ class SensitivityResults(Results):
                 color_index += 1
 
         fig.update_layout(**fig_kwargs)
-        return fig
+        return downsample_figure(fig, n_points)
 
     def build_plot_time_results(
         self,
@@ -7890,6 +7930,9 @@ class SensitivityResults(Results):
         ]
 
         t = self.sensitivity_run_time_results["t"]
+        if x_lim_dt is not None:
+            # Only the first x_lim_dt time steps are shown, so only they are plotted.
+            t, data = t[: x_lim_dt + 1], data[: x_lim_dt + 1]
         fig.add_trace(
             go.Scatter(
                 x=t,
